@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Car Controller</title>
+<style>
+* {
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+body {
+    margin: 0;
+    background: #101827;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    touch-action: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+h2 { margin: 0 0 10px; }
+#status { color: #f59e0b; margin-bottom: 25px; font-weight: bold; }
+
+.btn-group {
+    display: flex;
+    flex-direction: column;
+    gap: 25px;
+    width: 80%;
+    max-width: 260px;
+}
+
+button {
+    border: none;
+    border-radius: 20px;
+    padding: 35px 0;
+    font-size: 26px;
+    font-weight: bold;
+    color: white;
+    background: #29364b;
+    border: 3px solid #52647e;
+    box-shadow: 0 6px 15px #0008;
+    touch-action: none;
+}
+
+button.active {
+    background: #36a2ff;
+    border-color: #93c5fd;
+    transform: scale(0.96);
+}
+
+#state {
+    margin-top: 25px;
+    font-size: 16px;
+    color: #b8c7dc;
+}
+</style>
+</head>
+
+<body>
+
+<h2>ĐIỀU KHIỂN XE</h2>
+<div id="status">Đang kết nối...</div>
+
+<div class="btn-group">
+    <button id="btn-fwd">▲ TIẾN</button>
+    <button id="btn-bwd">▼ LÙI</button>
+</div>
+
+<div id="state">Trạng thái: ĐANG DỪNG</div>
+
+<script>
+const ESP = window.location.hostname ? `http://${window.location.hostname}` : "http://192.168.4.1";
+
+const btnFwd = document.getElementById("btn-fwd");
+const btnBwd = document.getElementById("btn-bwd");
+const statusText = document.getElementById("status");
+const stateText = document.getElementById("state");
+
+let y = 0; // 100: Tiến, -100: Lùi, 0: Dừng
+let isSending = false;
+
+async function sendCommand(force = false) {
+    if (isSending && !force) return;
+    isSending = true;
+
+    // Giữ nguyên định dạng x,y,boost (x=0, boost=0) để tương thích hoàn toàn với main.py
+    const command = `0,${y},0`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 250);
+
+    try {
+        const res = await fetch(`${ESP}/cmd?v=${command}`, {
+            cache: "no-store",
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) throw new Error();
+        statusText.textContent = "Đã kết nối";
+        statusText.style.color = "#36d399";
+    } catch (e) {
+        statusText.textContent = "Mất kết nối";
+        statusText.style.color = "#ff6677";
+    } finally {
+        isSending = false;
+    }
+}
+
+function setDirection(newY, label, activeBtn) {
+    y = newY;
+    stateText.textContent = "Trạng thái: " + label;
+    btnFwd.classList.remove("active");
+    btnBwd.classList.remove("active");
+    if (activeBtn) activeBtn.classList.add("active");
+    sendCommand(true);
+}
+
+// Nút TIẾN
+btnFwd.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    setDirection(100, "ĐANG TIẾN ▲", btnFwd);
+});
+
+// Nút LÙI
+btnBwd.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    setDirection(-100, "ĐANG LÙI ▼", btnBwd);
+});
+
+// Nhả tay ra là DỪNG
+function stopCar() {
+    if (y === 0) return;
+    setDirection(0, "ĐANG DỪNG", null);
+}
+
+[btnFwd, btnBwd].forEach(btn => {
+    btn.addEventListener("pointerup", stopCar);
+    btn.addEventListener("pointercancel", stopCar);
+    btn.addEventListener("lostpointercapture", stopCar);
+});
+
+// Gửi lệnh duy trì mỗi 100ms để không bị ngắt bởi Safety Timeout trên ESP32
+setInterval(() => sendCommand(false), 100);
+</script>
+
+</body>
+</html>
